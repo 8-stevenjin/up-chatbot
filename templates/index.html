@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>파일 기반 GPT 챗봇</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f9f9f9;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .upload-area {
+      margin-top: 20px;
+      border: 2px dashed #aaa;
+      padding: 20px;
+      text-align: center;
+      width: 60%;
+      background-color: white;
+    }
+
+    .upload-area.dragover {
+      border-color: #007bff;
+      background-color: #e6f0ff;
+    }
+
+    .upload-btn {
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+
+    #file-list {
+      margin-top: 10px;
+      text-align: left;
+    }
+
+    .file-entry {
+      background: #eee;
+      padding: 6px 10px;
+      border-radius: 5px;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .delete-btn {
+      background: red;
+      color: white;
+      border: none;
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .chat-container {
+      margin-top: 20px;
+      width: 60%;
+      background: white;
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+
+    #chat-box {
+      max-height: 400px;
+      overflow-y: auto;
+      margin-bottom: 15px;
+    }
+
+    .message {
+      margin: 10px 0;
+      display: flex;
+    }
+
+    .user-bubble, .gpt-bubble {
+      padding: 10px 15px;
+      border-radius: 20px;
+      max-width: 70%;
+    }
+
+    .user-bubble {
+      background-color: #d1e7ff;
+      margin-left: auto;
+    }
+
+    .gpt-bubble {
+      background-color: #e2f5e8;
+      margin-right: auto;
+    }
+
+    #chat-input {
+      display: flex;
+      gap: 10px;
+    }
+
+    #question-input {
+      flex: 1;
+      padding: 10px;
+      border-radius: 20px;
+      border: 1px solid #ccc;
+      font-size: 1rem;
+    }
+
+    #ask-btn {
+      padding: 10px 15px;
+      border-radius: 20px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    #reset-btn {
+      padding: 10px 15px;
+      border-radius: 20px;
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+
+    #upload-status {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="upload-area" id="upload-area">
+    <h3>📁 파일 첨부형 AI 챗봇(GPT-3.5)</h3>
+    <p>💡 파일을 이곳에 드래그하거나 아래 버튼을 클릭하세요</p>
+    <input type="file" id="file-input" name="file" multiple hidden />
+    <button class="upload-btn" id="select-btn">파일 올리기</button>
+    <div id="upload-status"></div>
+    <div id="file-list"></div>
+  </div>
+
+  <div class="chat-container">
+    <h3>💬 GPT와 대화하기</h3>
+    <div id="chat-box"></div>
+
+    <div id="chat-input">
+      <input type="text" id="question-input" placeholder="질문을 입력하세요 (Enter 가능)" />
+      <button id="ask-btn">전송</button>
+      <button id="reset-btn">종료</button>
+    </div>
+  </div>
+
+  <script>
+    const uploadArea = document.getElementById('upload-area');
+    const fileInput = document.getElementById('file-input');
+    const selectBtn = document.getElementById('select-btn');
+    const uploadStatus = document.getElementById('upload-status');
+    const fileList = document.getElementById('file-list');
+    const questionInput = document.getElementById('question-input');
+    const askBtn = document.getElementById('ask-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const chatBox = document.getElementById('chat-box');
+
+    const chatLog = [];
+
+    selectBtn.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length > 0) uploadFiles(fileInput.files);
+    });
+
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) uploadFiles(e.dataTransfer.files);
+    });
+
+    async function uploadFiles(files) {
+      uploadStatus.innerText = '🔄 업로드 중...';
+      const formData = new FormData();
+      for (const file of files) {
+        formData.append('file', file);
+      }
+
+      try {
+        const res = await fetch('/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          uploadStatus.innerText = '✅ 업로드 완료';
+          data.filenames.forEach(filename => {
+            const div = document.createElement('div');
+            div.className = 'file-entry';
+            div.innerHTML = `${filename}<button class="delete-btn" onclick="deleteFile('${filename}')">삭제</button>`;
+            fileList.appendChild(div);
+          });
+        } else {
+          uploadStatus.innerText = data.message || '❌ 업로드 실패';
+        }
+      } catch (err) {
+        uploadStatus.innerText = '❌ 업로드 실패';
+        console.error(err);
+      }
+    }
+
+    async function deleteFile(filename) {
+      const res = await fetch('/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        uploadStatus.innerText = `🗑️ ${filename} 삭제됨`;
+        document.querySelectorAll('.file-entry').forEach(el => {
+          if (el.textContent.includes(filename)) el.remove();
+        });
+      } else {
+        uploadStatus.innerText = data.message || '삭제 실패';
+      }
+    }
+
+    function appendMessage(role, content) {
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'message';
+      msgDiv.innerHTML = `<div class="${role === 'user' ? 'user-bubble' : 'gpt-bubble'}">${content}</div>`;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      chatLog.push(`${role === 'user' ? '사용자' : 'GPT'}: ${content}`);
+    }
+
+    async function sendQuestion() {
+      const question = questionInput.value.trim();
+      if (!question) return;
+
+      appendMessage('user', question);
+      questionInput.value = '';
+
+      const res = await fetch('/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question })
+      });
+
+      const data = await res.json();
+      appendMessage('gpt', data.answer || '❌ 응답 실패');
+    }
+
+    askBtn.addEventListener('click', sendQuestion);
+    questionInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendQuestion();
+      }
+    });
+
+    // 종료(초기화)
+    resetBtn.addEventListener('click', () => {
+      chatBox.innerHTML = '';
+      chatLog.length = 0;
+      questionInput.value = '';
+    });
+  </script>
+
+</body>
+</html>
